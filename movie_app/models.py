@@ -78,9 +78,19 @@ class Movie(models.Model):
     movie_image = models.ImageField(upload_to='movie_images/')
     STATUS_CHOICES = (
     ('pro', 'pro'),
-    ('pro', 'simple')
+    ('simple', 'simple')
     )
     status_movie = models.CharField(choices=STATUS_CHOICES)
+
+    def get_avg_rating(self):
+        ratings = self.ratings.all()
+        if ratings.exists():
+            return round(sum(r.stars for r in ratings) / ratings.count(), 2)
+        return 0
+
+    def get_count_people(self):
+        return self.ratings.count()
+
 
     def __str__(self):
         return self.movie_name
@@ -90,9 +100,18 @@ class MovieLanguages(models.Model):
     language = models.CharField(max_length=32)
     video = models.FileField(upload_to='videos/')
     movie = models.ForeignKey(Movie, on_delete=models.CASCADE)
+    subtitle = models.FileField(upload_to='subtitles/', null=True, blank=True)
+    QUALITY_CHOICES = (
+        ('144p', '144p'),
+        ('360p', '360p'),
+        ('480p', '480p'),
+        ('720p', '720p'),
+        ('1080p', '1080p'),
+    )
+    quality = models.CharField(max_length=10, choices=QUALITY_CHOICES, default='480p')
 
     def __str__(self):
-        return f'{self.movie}, {self.language}'
+        return f'{self.movie}, {self.language}, {self.quality}'
 
 
 class Moments(models.Model):
@@ -106,7 +125,7 @@ class Moments(models.Model):
 class Rating(models.Model):
     user = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True)
-    movie = models.ForeignKey(Movie, on_delete=models.CASCADE)
+    movie = models.ForeignKey(Movie, on_delete=models.CASCADE, related_name='ratings')
     stars = models.PositiveSmallIntegerField(choices=[(i, str (i))for i in range(1,11)])
     text = models.TextField()
     created_date = models.DateTimeField(auto_now_add=True
@@ -127,10 +146,12 @@ class FavoriteMovie(models.Model):
 
 
 class History(models.Model):
-    user = models.OneToOneField(UserProfile, on_delete=models.CASCADE)
+    user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='history')
     movie = models.ForeignKey(Movie, on_delete=models.CASCADE)
     viewed_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f'{self.user}, {self.movie}'
+        return f'{self.user.username} {self.movie.movie_name} {self.viewed_at}'
+
+
 

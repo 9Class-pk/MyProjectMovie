@@ -6,15 +6,21 @@ from rest_framework.views import status, APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .filters import MovieFilter
-from .serializer import(UserProfileSerializer, CountrySerializer, DirectorSerializer,
-                        ActorSerializer, GenreSerializer, MovieSerializer, MomentsSerializer,
-                        MovieLanguagesSerializer, RatingSerializer, FavoriteSerializer,
-                        FavoriteMovieSerializer, HistorySerializer, UserSerializer,LoginSerializer,
-                        )
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework.exceptions import PermissionDenied
+from .serializer import (UserProfileSerializer, CountrySerializer,
+                         ActorListSerializer, ActorDetailSerializer, GenreListSerializer, GenreDetailSerializer,
+                         MovieListSerializer, MovieDetailSerializer, MomentsSerializer,
+                         MovieLanguagesSerializer, RatingSerializer, FavoriteSerializer,
+                         FavoriteMovieSerializer, HistorySerializer, UserSerializer,
+                         LoginSerializer, DirectorListSerializer, DirectorDetailSerializer, UserRegisterSerializer
+                         )
+
+from .permissions import CheckStatus, CheckRating
+
 
 class RegisterView(generics.CreateAPIView):
-    serializer_class = UserSerializer
+    serializer_class = UserRegisterSerializer
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
@@ -37,7 +43,6 @@ class CustomLoginView(TokenObtainPairView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-
 class LogoutView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
@@ -56,61 +61,101 @@ class LogoutView(APIView):
 class BaseReadOnlyViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    pagination_class = None
+
+
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all()
     serializer_class = UserProfileSerializer
     permission_classes = [permissions.IsAdminUser]
 
+
 class CountryViewSet(BaseReadOnlyViewSet):
     queryset = Country.objects.all()
     serializer_class = CountrySerializer
 
-class DirectorViewSet(BaseReadOnlyViewSet):
+
+class DirectorListAPIView(generics.ListAPIView):
     queryset = Director.objects.all()
-    serializer_class = DirectorSerializer
+    serializer_class = DirectorListSerializer
 
-class ActorViewSet(BaseReadOnlyViewSet):
+
+class DirectorDetailAPIView(generics.RetrieveAPIView):
+    queryset = Director.objects.all()
+    serializer_class = DirectorDetailSerializer
+
+
+class ActorListAPIView(generics.ListAPIView):
     queryset = Actor.objects.all()
-    serializer_class = ActorSerializer
+    serializer_class = ActorListSerializer
 
-class GenreViewSet(BaseReadOnlyViewSet):
+class ActorDetailAPIView(generics.RetrieveAPIView):
+    queryset = Actor.objects.all()
+    serializer_class = ActorDetailSerializer
+
+
+class GenreListAPIView(generics.ListAPIView):
     queryset = Genre.objects.all()
-    serializer_class = GenreSerializer
+    serializer_class = GenreListSerializer
 
-class MovieViewSet(viewsets.ModelViewSet):
-    queryset = Movie.objects.all()
-    serializer_class = MovieSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+class GenreDetailAPIView(generics.RetrieveAPIView):
+    queryset = Genre.objects.all()
+    serializer_class = GenreDetailSerializer
+
+
+# МиксMovie двух листов который обьединяет двух похожих переменных
+# одинаковые filter_backends, filterset_fields, search_fields, ordering_fields в двух местах (MovieListAPIView, MovieDetailAPIView).
+class MovieFilterMixin:
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status_movie', 'types', 'year', 'country', 'actor', 'director', 'genre']
     search_fields = ['movie_name', 'description']
     ordering_fields = ['year', 'movie_time']
 
+
+class MovieListAPIView(generics.ListAPIView):
+    queryset = Movie.objects.all()
+    serializer_class = MovieListSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, CheckRating]
+
+
+class MovieDetailAPIView(generics.RetrieveAPIView):
+    queryset = Movie.objects.all()
+    serializer_class = MovieDetailSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, CheckStatus]
+
+
+
 class MovieLanguagesViewSet(BaseReadOnlyViewSet):
     queryset = MovieLanguages.objects.all()
     serializer_class = MovieLanguagesSerializer
+
 
 class MomentsViewSet(BaseReadOnlyViewSet):
     queryset = Moments.objects.all()
     serializer_class = MomentsSerializer
 
+
 class RatingViewSet(viewsets.ModelViewSet):
     queryset = Rating.objects.all()
     serializer_class = RatingSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, CheckRating]
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
 
 class FavoriteViewSet(viewsets.ModelViewSet):
     queryset = Favorite.objects.all()
     serializer_class = FavoriteSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    def get_queryset(self):
-        return Favorite.objects.filter(user=self.request.user)
+    def get_object(self):
+        # Если хочешь, чтобы можно было работать только со своей записью избранного
+        obj = super().get_object()
+        if obj.user != self.request.user:
+            raise PermissionDenied("Нет доступа к чужому избранному")
+        return obj
 
 class FavoriteMovieViewSet(viewsets.ModelViewSet):
     queryset = FavoriteMovie.objects.all()
@@ -118,10 +163,11 @@ class FavoriteMovieViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user_fav = Favorite.objects.filter(user=self.request.user).first()
+        user_fav, _ = Favorite.objects.get_or_create(user=self.request.user)
         if user_fav:
             return FavoriteMovie.objects.filter(favorite=user_fav)
         return FavoriteMovie.objects.none()
+
 
 class HistoryViewSet(viewsets.ModelViewSet):
     queryset = History.objects.all()

@@ -13,8 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'password')
-
+        fields = ('id', 'username', 'email','password')
 
 
 
@@ -27,7 +26,7 @@ class LoginSerializer(TokenObtainPairSerializer):
         return token
 
 
-class UserSerializer(serializers.ModelSerializer):
+class UserRegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ('username', 'email', 'password', 'first_name', 'last_name',
@@ -40,66 +39,66 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 
-class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    password = serializers.CharField(write_only=True)
-
-    def validate(self, data):
-        user = authenticate(**data)
-        if user and user.is_active:
-            return user
-        raise serializers.ValidationError("Неверные учетные данные")
-
-    def to_representation(self, instance):
-        refresh = RefreshToken.for_user(instance)
-        return {
-            'user': {
-                'username': instance.username,
-                'email': instance.email,
-            },
-            'access': str(refresh.access_token),
-            'refresh': str(refresh),
-        }
-
-
-
-
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ['password', 'user_permissions', 'groups', 'last_login', 'is_superuser']
+        fields = ['username', 'status', 'first_name', 'last_name', 'avatar']
 
 
 
 class CountrySerializer(serializers.ModelSerializer):
     class Meta:
         model = Country
-        fields = ['id', 'country_name']
+        fields = ['country_name']
 
-class DirectorSerializer(serializers.ModelSerializer):
+class DirectorListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Director
-        fields = ['id', 'director_name', 'bio', 'age', 'director_image']
+        fields = ['director_name', ]
 
-class ActorSerializer(serializers.ModelSerializer):
+
+class DirectorDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Director
+        fields = ['director_name', 'bio', 'age', 'director_image']
+
+
+
+class ActorListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Actor
-        fields = ['id', 'actor_name', 'bio', 'age', 'actor_image']
+        fields = ['actor_name']
 
-class GenreSerializer(serializers.ModelSerializer):
+
+class ActorDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Actor
+        fields = ['actor_name', 'bio', 'actor_image', 'age']
+
+
+class GenreListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Genre
-        fields = ['id', 'genre_name']
+        fields = ['id', 'genre_name',]
+
+
+class GenreDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Genre
+        fields = ['genre_name']
+
 
 class MovieLanguagesSerializer(serializers.ModelSerializer):
     class Meta:
         model = MovieLanguages
-        fields = ['id', 'language', 'video']
+        fields = ['language', 'video','subtitle', 'quality']
+
 
 class MomentsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Moments
-        fields = ['id', 'movie_moments']
+        fields = ['movie_moments']
+
 
 class RatingSerializer(serializers.ModelSerializer):
     user = UserProfileSerializer(read_only=True)
@@ -107,14 +106,70 @@ class RatingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Rating
-        fields = ['id', 'user', 'parent', 'movie', 'stars', 'text', 'created_date']
+        fields = ['user', 'parent', 'movie', 'stars', 'text', 'created_date',]
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        movie = validated_data['movie']
+        stars = validated_data['stars']
+
+
+        rating, created = Rating.objects.update_or_create(
+            user=user, movie=movie,
+            defaults={'stars': stars}
+        )
+        return rating
+
+
+class MovieListSerializer(serializers.ModelSerializer):
+    country = CountrySerializer(many=True, read_only=True)
+    year = serializers.DateField(format='%d-%m-%Y')
+    genre = GenreListSerializer(many=True, read_only=True)
+
+
+
+    class Meta:
+        model = Movie
+        fields = [
+                'movie_name', 'year', 'country', 'genre',
+              'movie_image',
+
+        ]
+
+class MovieDetailSerializer(serializers.ModelSerializer):
+    country = CountrySerializer(many=True, read_only=True)
+    year = serializers.DateField(format='%d-%m-%Y')
+    director = DirectorDetailSerializer(many=True, read_only=True)
+    actor = ActorDetailSerializer(many=True, read_only=True)
+    genre = GenreDetailSerializer(many=True, read_only=True)
+    movie_languages = MovieLanguagesSerializer(many=True, read_only=True, source='movielanguages_set')
+    moments = MomentsSerializer(many=True, read_only=True, source='moments_set')
+    get_avg_rating = serializers.SerializerMethodField()
+    get_count_people = serializers.SerializerMethodField()
+
+
+    class Meta:
+        model = Movie
+        fields = [
+            'id', 'movie_name', 'year', 'country', 'director', 'actor', 'genre', 'types',
+            'movie_time', 'description', 'movie_trailer', 'movie_image', 'status_movie',
+            'movie_languages', 'moments', 'get_avg_rating',  'get_count_people'
+        ]
+
+    def get_avg_rating(self,obj):
+        return obj.get_avg_rating()
+
+    def get_count_people(self,obj):
+        return obj.get_count_people()
+
 
 class FavoriteMovieSerializer(serializers.ModelSerializer):
-    movie = MovieLanguagesSerializer(read_only=True)
+    movie = MovieListSerializer(read_only=True)
 
     class Meta:
         model = FavoriteMovie
         fields = ['id', 'movie']
+
 
 class FavoriteSerializer(serializers.ModelSerializer):
     favorite_movies = FavoriteMovieSerializer(many=True, source='favoritemovie_set', read_only=True)
@@ -123,25 +178,12 @@ class FavoriteSerializer(serializers.ModelSerializer):
         model = Favorite
         fields = ['id', 'user', 'favorite_movies']
 
+
 class HistorySerializer(serializers.ModelSerializer):
-    movie = MovieLanguagesSerializer(read_only=True)
+    movie = MovieListSerializer(read_only=True)
 
     class Meta:
         model = History
         fields = ['id', 'movie', 'viewed_at']
 
-class MovieSerializer(serializers.ModelSerializer):
-    country = CountrySerializer(many=True, read_only=True)
-    director = DirectorSerializer(many=True, read_only=True)
-    actor = ActorSerializer(many=True, read_only=True)
-    genre = GenreSerializer(many=True, read_only=True)
-    movie_languages = MovieLanguagesSerializer(many=True, read_only=True, source='movielanguages_set')
-    moments = MomentsSerializer(many=True, read_only=True, source='moments_set')
 
-    class Meta:
-        model = Movie
-        fields = [
-            'id', 'movie_name', 'year', 'country', 'director', 'actor', 'genre', 'types',
-            'movie_time', 'description', 'movie_trailer', 'movie_image', 'status_movie',
-            'movie_languages', 'moments',
-        ]
